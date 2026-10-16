@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+.pytest_cache/
+build/
+*.zip
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!example.tfvars
+infra/backend.hcl
+.DS_Store
