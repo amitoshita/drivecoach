@@ -8,5 +8,5 @@ build/
 *.tfstate.*
 *.tfvars
 !example.tfvars
-infra/backend.hcl
+terraform/backend.hcl
 .DS_Store

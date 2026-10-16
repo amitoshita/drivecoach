@@ -1,79 +1,51 @@
-# DriveCoach starter infrastructure
-# Written by the previous engineer before they left. It was used for a quick demo.
-# Extend it, change it, or replace it as you see fit.
+# DriveCoach infrastructure.
+#
+#   S3 raw (private, KMS) --ObjectCreated--> SQS ingest --> λ ingest --> DynamoDB lessons
+#                                                              |
+#                                     SQS FIFO evaluate (group = student) --> λ evaluate
+#                                                              --> DynamoDB evaluations (audit) + students
+#   API Gateway (HTTP API + authorizer) --> λ api --> DynamoDB (read only)
+#
+# Each concern lives in its own file: kms, storage, queues, dynamodb, lambda, api, observability.
 
 data "aws_caller_identity" "current" {}
+data "aws_partition" "current" {}
 
-# ---------------------------------------------------------------
-# Raw lesson files uploaded by the in-car boxes
-# ---------------------------------------------------------------
-resource "aws_s3_bucket" "raw" {
-  bucket_prefix = "${var.project_name}-raw-"
-  force_destroy = true
+locals {
+  name       = var.project_name
+  account_id = data.aws_caller_identity.current.account_id
 }
 
-# Opened up so instructors can download raw files straight from a browser.
-# Makes testing much easier.
-resource "aws_s3_bucket_public_access_block" "raw" {
-  bucket                  = aws_s3_bucket.raw.id
-  block_public_acls       = false
-  block_public_policy     = false
-  ignore_public_acls      = false
-  restrict_public_buckets = false
-}
-
-resource "aws_s3_bucket_policy" "raw_read" {
-  bucket     = aws_s3_bucket.raw.id
-  depends_on = [aws_s3_bucket_public_access_block.raw]
+# One customer-managed key for data at rest: S3, DynamoDB, SSM, SNS.
+resource "aws_kms_key" "data" {
+  description             = "${local.name} data at rest"
+  enable_key_rotation     = true
+  deletion_window_in_days = 7
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Sid       = "InstructorDownload"
-      Effect    = "Allow"
-      Principal = "*"
-      Action    = ["s3:GetObject"]
-      Resource  = "${aws_s3_bucket.raw.arn}/*"
-    }]
+    Statement = [
+      {
+        Sid       = "AccountAdmin"
+        Effect    = "Allow"
+        Principal = { AWS = "arn:${data.aws_partition.current.partition}:iam::${local.account_id}:root" }
+        Action    = "kms:*"
+        Resource  = "*"
+      },
+      {
+        # CloudWatch alarms publish to the encrypted SNS topic.
+        Sid       = "CloudWatchAlarmsToSns"
+        Effect    = "Allow"
+        Principal = { Service = "cloudwatch.amazonaws.com" }
+        Action    = ["kms:Decrypt", "kms:GenerateDataKey*"]
+        Resource  = "*"
+        Condition = { StringEquals = { "aws:SourceAccount" = local.account_id } }
+      },
+    ]
   })
 }
 
-# ---------------------------------------------------------------
-# Execution role for the processing Lambda
-# ---------------------------------------------------------------
-resource "aws_iam_role" "lambda_exec" {
-  name = "${var.project_name}-lambda-exec"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect    = "Allow"
-      Principal = { Service = "lambda.amazonaws.com" }
-      Action    = "sts:AssumeRole"
-    }]
-  })
-}
-
-# TODO: tighten before production. Wide open for now so nothing blocks the demo.
-resource "aws_iam_role_policy" "lambda_all" {
-  name = "${var.project_name}-lambda-all"
-  role = aws_iam_role.lambda_exec.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect   = "Allow"
-      Action   = "*"
-      Resource = "*"
-    }]
-  })
-}
-
-# ---------------------------------------------------------------
-# Config
-# ---------------------------------------------------------------
-resource "aws_ssm_parameter" "instructor_api_key" {
-  name  = "/${var.project_name}/instructor_api_key"
-  type  = "String"
-  value = var.instructor_api_key
+resource "aws_kms_alias" "data" {
+  name          = "alias/${local.name}-data"
+  target_key_id = aws_kms_key.data.key_id
 }

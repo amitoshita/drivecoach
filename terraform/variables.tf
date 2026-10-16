@@ -16,8 +16,24 @@ variable "project_name" {
   default     = "drivecoach"
 }
 
-variable "instructor_api_key" {
-  description = "API key instructors use to call the read API"
+# The starter kit had a hardcoded default API key here. It is in git history,
+# so it is treated as leaked: the key is now generated at deploy time
+# (random_password in api.tf) and stored only as an SSM SecureString.
+
+variable "alarm_email" {
+  description = "Email that receives CloudWatch alarm notifications (empty = no subscription)"
   type        = string
-  default     = "dc-instr-2026-Kx9q7Lm2"
+  default     = ""
+}
+
+variable "force_destroy" {
+  description = "Allow `terraform destroy` to delete non-empty buckets. True for this assignment; false in production."
+  type        = bool
+  default     = true
+}
+
+variable "log_retention_days" {
+  description = "CloudWatch Logs retention"
+  type        = number
+  default     = 30
 }
