@@ -270,14 +270,17 @@ Committed unchanged as the first commit (`git log`), so every change below is vi
    not by upload or processing time. Replays are then deterministic.
 8. **Events.** Runs shorter than 15 samples are ignored entirely (they neither count nor bridge).
    Two qualifying runs merge when fewer than 50 non-qualifying samples separate them. On this data, four
-   reasonable interpretations give identical counts (checked).
+   reasonable interpretations give identical counts (checked). The spec's 15 / 50 samples are applied
+   as 0.3 s / 1 s, so a box with a different sample rate is judged the same way.
 9. **Metrics are rounded to 4 decimals before evaluation and storage**, so re-evaluating the
    stored metrics always reproduces the stored result.
 10. **Validation.** Files with missing samples (t_ms gaps), non-monotonic time, non-numeric values,
     unknown units or physically implausible values (speed > 300 km/h, |accel| > 30 m/s²) are
     rejected rather than scored. A broken sensor should not fail a student.
 11. **Unknown student** (not in `students.csv`): the lesson is stored and evaluated; no state is
-    created; metric `UnknownStudentLessons` is emitted.
+    created; metric `UnknownStudentLessons` is emitted. **Known gap:** enrolling the student later does
+   not trigger a rebuild automatically; an operator sends `{"student_id": "S-…", "reason": "enrolled"}`
+   to the evaluate queue (MessageGroupId = student id). Automating this is in "another week".
 12. Instructor authorization is all-or-nothing (one shared key). Per-instructor scoping is in the "another week" list.
 
 ---
@@ -308,7 +311,8 @@ group per student and an optimistic lock on the state record prevent concurrent 
   `fields lesson_id, result | filter event = "lesson.evaluated" | sort ts desc`
 - Custom metrics via Embedded Metric Format: `LessonsIngested`, `DuplicateUploads`,
   `RejectedFiles`, `Evaluations` by result, `Reevaluations`, `UnknownStudentLessons`.
-- **Alarms** → SNS (email optional): DLQ not empty (×2), Lambda errors (×3), rejected files,
+- **Alarms** → SNS (email optional): DLQ not empty (×2), processing failures on the first attempt (×2,
+  because handled errors don't show up in the Lambda `Errors` metric), Lambda errors (×4), rejected files,
   ingest backlog older than 15 minutes. Dashboard `drivecoach`.
 - API Gateway access logs, throttling (10 rps, burst 20).
 
@@ -334,7 +338,7 @@ SSM SecureString. The decision is cached for 5 minutes. Without a key the API re
 | DynamoDB on-demand (~20 WRU + ~60 RRU per lesson, ~10 KB stored) | 0.4 M WRU, 1.1 M RRU | $0.45 |
 | SQS | ~0.1 M requests | $0.05 |
 | KMS (1 key + requests, S3 bucket keys) | | $1.20 |
-| CloudWatch: ~15 custom metrics, 7 alarms, dashboard, ~1 GB logs | | ~$8.70 |
+| CloudWatch: ~15 custom metrics, 11 alarms, dashboard, ~1 GB logs | | ~$9 |
 | API Gateway HTTP API | instructor traffic | < $0.10 |
 | **Total** | | **≈ $12/month in month 1, ≈ $15 by month 12** |
 
@@ -435,7 +439,7 @@ Not attempted yet. Priority went to correctness, security and the required items
 
 ```bash
 python -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
-make test        # 54 tests, ~20 s
+make test        # 58 tests, ~20 s
 ```
 
 - **Golden tests** (`tests/test_pipeline_golden.py`): every lesson result and final student state
@@ -465,3 +469,5 @@ make test        # 54 tests, ~20 s
 7. Elixir: port `rules.py` + `progress.py` (pure functions, a natural fit for pattern matching) and run
    them as a Lambda container image.
 8. A small instructor web page on top of the API: lesson timeline on a map/speed chart.
+9. Rebuild a student automatically when they are enrolled after their first lesson arrived
+   (DynamoDB Stream on `students` INITIAL → evaluate queue).

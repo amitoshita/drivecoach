@@ -235,3 +235,12 @@ def test_lesson_of_unknown_student_is_kept_and_evaluated(aws, upload_files):
     assert lesson["evaluation"]["result"] == "PASS"
     assert "unknown student" in lesson["evaluation"]["notes"][0]
     assert api_get(aws, "students", "S-404")[0] == 404
+
+
+def test_malformed_evaluate_message_does_not_fail_the_batch(aws, upload_files):
+    upload(aws, upload_files[0])
+    msgs = aws["sqs"].receive_message(QueueUrl=aws["queue_url"], MaxNumberOfMessages=10)["Messages"]
+    records = [{"messageId": "bad", "body": "{not json"}, {"messageId": "manual", "body": '{"reason": "x"}'}]
+    records += [{"messageId": m["MessageId"], "body": m["Body"]} for m in msgs]
+    assert aws["evaluate"].handler({"Records": records}, Ctx()) == {"batchItemFailures": []}
+    assert api_get(aws, "lessons", "L-1001")[1]["evaluation"]["result"] == "PASS"

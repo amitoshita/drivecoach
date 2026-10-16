@@ -21,8 +21,14 @@ def handler(event, context):
     records = event.get("Records", [])
     done = set()
     for index, message in enumerate(records):
-        body = json.loads(message["body"])
-        student_id = body["student_id"]
+        try:
+            body = json.loads(message["body"])
+            student_id = body["student_id"]
+        except (ValueError, KeyError, TypeError):
+            # Can never succeed: drop it (it would block its FIFO group) but make it visible.
+            log.error("evaluate.bad_message", message_id=message.get("messageId"))
+            log.metric("ProcessingFailures")
+            continue
         if student_id in done:
             continue  # one rebuild already covers every lesson of this student
         try:
@@ -31,6 +37,7 @@ def handler(event, context):
         except Exception as exc:
             log.error("evaluate.failed", student_id=student_id, error=type(exc).__name__,
                       detail=str(exc)[:300])
+            log.metric("ProcessingFailures")
             # FIFO: on the first failure, return this and every later message so
             # ordering within each message group is preserved on retry.
             return {"batchItemFailures": [{"itemIdentifier": m["messageId"]} for m in records[index:]]}

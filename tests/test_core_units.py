@@ -203,3 +203,32 @@ def test_unknown_student_still_evaluated(rules_v1):
                   metrics=base_metrics())
     final, steps = progress.replay(None, [lesson], [rules_v1])
     assert final is None and steps[0]["result"] == "PASS"
+
+
+# ---------- regressions from code review ----------
+
+def test_unit_spelling_does_not_change_fingerprint():
+    a = make_file(steady(10), unit="kmh")
+    b = make_file(steady(10), unit="km/h")
+    assert lesson_file.parse(a).fingerprint == lesson_file.parse(b).fingerprint
+
+
+def test_event_thresholds_follow_sample_rate():
+    rows = [[i * 10, 50, 0.0, 0.0, 0, 50] for i in range(1000)]   # 100 Hz
+    for i in range(100, 125):                                    # 0.25 s: too short
+        rows[i][2] = -4.0
+    for i in range(500, 530):                                    # 0.30 s: an event
+        rows[i][2] = -4.0
+    text = make_file(rows).decode().replace("sample_rate_hz: 50", "sample_rate_hz: 100")
+    m, _ = metrics.compute(lesson_file.parse(text.encode()))
+    assert m["harsh_brake_count"] == 1
+
+
+def test_completion_through_fail_gets_final_score(rules_v1):
+    import copy as _copy
+    rules_small = _copy.deepcopy(rules_v1)
+    rules_small["programs"]["EXTENDED"]["lessons"] = 3
+    s = state(lessons_completed=2)
+    s, _, _ = progress.apply(s, "REGULAR", 80, "PASS", rules_small)    # 3/12 standard
+    s, _, _ = progress.apply(s, "REGULAR", 10, "FAIL", rules_small)    # -> EXTENDED, 3 >= 3
+    assert s["status"] == "COMPLETED" and s["final_score"] == 80.0

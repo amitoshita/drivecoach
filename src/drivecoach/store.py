@@ -160,10 +160,10 @@ def evaluation_history(lesson_id: str) -> List[dict]:
     return [from_dynamo(i) for i in items]
 
 
-def evaluations_for_student(student_id: str, limit: int = 50) -> List[dict]:
-    page = evaluations_table().query(IndexName="by_student", Limit=limit, ScanIndexForward=False,
-                                     KeyConditionExpression=Key("student_id").eq(student_id))
-    return [from_dynamo(i) for i in page.get("Items", [])]
+def evaluations_for_student(student_id: str) -> List[dict]:
+    items = _query_all(evaluations_table(), IndexName="by_student",
+                       KeyConditionExpression=Key("student_id").eq(student_id))
+    return [from_dynamo(i) for i in items]
 
 
 def append_evaluation(record: dict) -> dict:

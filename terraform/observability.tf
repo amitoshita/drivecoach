@@ -41,12 +41,31 @@ resource "aws_cloudwatch_metric_alarm" "dlq_not_empty" {
 }
 
 resource "aws_cloudwatch_metric_alarm" "lambda_errors" {
-  for_each            = toset(["ingest", "evaluate", "api"])
+  for_each            = toset(["ingest", "evaluate", "api", "authorizer"])
   alarm_name          = "${local.name}-${each.key}-errors"
   alarm_description   = "Unhandled errors in ${each.key} Lambda"
   namespace           = "AWS/Lambda"
   metric_name         = "Errors"
   dimensions          = { FunctionName = aws_lambda_function.fn[each.key].function_name }
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 0
+  comparison_operator = "GreaterThanThreshold"
+  treat_missing_data  = "notBreaching"
+  alarm_actions       = local.alarm_actions
+}
+
+# ingest/evaluate catch exceptions to report partial batch failures, so the
+# Lambda Errors metric stays at 0 when they fail. This catches those failures
+# on the first attempt, not only once messages reach a DLQ.
+resource "aws_cloudwatch_metric_alarm" "processing_failures" {
+  for_each            = toset(["ingest", "evaluate"])
+  alarm_name          = "${local.name}-${each.key}-processing-failures"
+  alarm_description   = "${each.key} failed to process messages (will be retried, then DLQ)"
+  namespace           = "DriveCoach"
+  metric_name         = "ProcessingFailures"
+  dimensions          = { Service = "${local.name}-${each.key}" }
   statistic           = "Sum"
   period              = 300
   evaluation_periods  = 1

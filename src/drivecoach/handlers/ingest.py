@@ -50,6 +50,7 @@ def handler(event, context):
         except Exception as exc:  # transient: let SQS retry, then DLQ
             log.error("ingest.failed", message_id=message["messageId"], error=type(exc).__name__,
                       detail=str(exc)[:300])
+            log.metric("ProcessingFailures")
             failures.append({"itemIdentifier": message["messageId"]})
     return {"batchItemFailures": failures}
 
@@ -67,7 +68,9 @@ def process_object(bucket: str, key: str) -> None:
     if head["ContentLength"] > MAX_FILE_BYTES:
         quarantine(bucket, key, "FILE_TOO_LARGE")
         return
-    body = s3().get_object(Bucket=bucket, Key=key)["Body"].read()
+    # Read exactly the version we sized, so version id, bytes and fingerprint agree.
+    version = {"VersionId": head["VersionId"]} if head.get("VersionId") else {}
+    body = s3().get_object(Bucket=bucket, Key=key, **version)["Body"].read()
 
     try:
         lesson = lesson_file.parse(body)

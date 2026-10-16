@@ -5,8 +5,12 @@ from typing import Callable, Dict, List, Sequence, Tuple
 
 from .lesson_file import Lesson
 
-MIN_EVENT_SAMPLES = 15    # 0.3 s at 50 Hz
-MERGE_GAP_SAMPLES = 50    # runs closer than 1 s at 50 Hz are one event
+# The spec defines events in samples at 50 Hz (15 samples, 50 samples). They are
+# kept as durations so a box with another sample rate is judged the same way.
+MIN_EVENT_SECONDS = 0.3
+MERGE_GAP_SECONDS = 1.0
+MIN_EVENT_SAMPLES = 15    # at 50 Hz
+MERGE_GAP_SAMPLES = 50    # at 50 Hz
 OVER_LIMIT_MARGIN_KMH = 5.0
 MOVING_THRESHOLD_KMH = 2.0
 G = 9.81
@@ -81,7 +85,8 @@ def compute(lesson: Lesson) -> Tuple[Dict[str, float], List[dict]]:
     timeline: List[dict] = []
     for metric, (event_type, condition, severity) in EVENT_TYPES.items():
         flags = [condition(lesson, i) for i in range(n)]
-        events = find_events(flags)
+        events = find_events(flags, min_samples=max(1, round(MIN_EVENT_SECONDS * hz)),
+                             merge_gap=max(1, round(MERGE_GAP_SECONDS * hz)))
         counts[metric] = len(events)
         for start, end in events:
             worst = max(range(start, end), key=lambda i: abs(severity(lesson, i)))

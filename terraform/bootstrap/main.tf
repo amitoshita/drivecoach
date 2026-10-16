@@ -193,8 +193,11 @@ resource "aws_iam_role_policy" "deploy" {
         Action = [
           "kms:CreateKey", "kms:CreateAlias", "kms:DeleteAlias", "kms:Describe*", "kms:List*",
           "kms:Get*", "kms:EnableKeyRotation", "kms:PutKeyPolicy", "kms:ScheduleKeyDeletion",
-          "kms:TagResource", "kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey*",
+          "kms:TagResource", "kms:UntagResource", "kms:CreateGrant", "kms:Decrypt", "kms:Encrypt", "kms:GenerateDataKey*",
           "apigateway:*", "cloudwatch:*", "logs:DescribeLogGroups", "logs:ListTagsForResource",
+          # API Gateway access logging
+          "logs:CreateLogDelivery", "logs:GetLogDelivery", "logs:UpdateLogDelivery", "logs:DeleteLogDelivery",
+          "logs:ListLogDeliveries", "logs:PutResourcePolicy", "logs:DescribeResourcePolicies",
           "lambda:CreateEventSourceMapping", "lambda:GetEventSourceMapping", "lambda:UpdateEventSourceMapping",
           "lambda:DeleteEventSourceMapping", "lambda:ListEventSourceMappings",
           "sqs:ListQueues", "s3:ListAllMyBuckets", "sts:GetCallerIdentity", "iam:ListRoles", "ssm:DescribeParameters",

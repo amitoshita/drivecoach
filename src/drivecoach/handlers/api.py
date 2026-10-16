@@ -62,7 +62,7 @@ def get_student(student_id: str):
     if student is None or student["initial"] is None:
         return None
     state = student["state"] or student["initial"]
-    evaluations = latest_per_lesson(store.evaluations_for_student(student_id, limit=500))
+    evaluations = latest_per_lesson(store.evaluations_for_student(student_id))
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     current_rules = rules_engine.select(store.load_rule_sets(), today)
     program = current_rules["programs"].get(state["program"], {})
@@ -93,9 +93,10 @@ def get_lesson(lesson_id: str):
         return None
     history = sorted(store.evaluation_history(lesson_id), key=lambda e: e["evaluated_at"])
     latest = history[-1] if history else None
-    raw_url = s3().generate_presigned_url(
-        "get_object", Params={"Bucket": lesson["s3_bucket"], "Key": lesson["s3_key"]},
-        ExpiresIn=RAW_URL_TTL_SECONDS)
+    params = {"Bucket": lesson["s3_bucket"], "Key": lesson["s3_key"]}
+    if lesson.get("s3_version_id"):
+        params["VersionId"] = lesson["s3_version_id"]  # the recording that was scored
+    raw_url = s3().generate_presigned_url("get_object", Params=params, ExpiresIn=RAW_URL_TTL_SECONDS)
     return {
         "lesson_id": lesson_id,
         "student_id": lesson["student_id"],

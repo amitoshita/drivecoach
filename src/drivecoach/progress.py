@@ -64,8 +64,7 @@ def apply(state: dict, lesson_type: str, lesson_score: float, result: str,
             new["passed_regular_count"] += 1
             new["passed_regular_score_sum"] = round(new["passed_regular_score_sum"] + float(lesson_score), 4)
             if new["lessons_completed"] >= program["lessons"]:
-                new["status"] = COMPLETED
-                new["final_score"] = round(new["passed_regular_score_sum"] / new["passed_regular_count"], 2)
+                _complete(new)
     elif effective == FAIL:
         # Assumption: after a FAIL the student goes back to REGULAR lessons.
         new["next_lesson_type"] = REGULAR
@@ -73,11 +72,17 @@ def apply(state: dict, lesson_type: str, lesson_score: float, result: str,
             new["program"] = "EXTENDED"
             new["review_count"] = 0
             if new["lessons_completed"] >= rules["programs"]["EXTENDED"]["lessons"]:
-                new["status"] = COMPLETED
+                _complete(new)
         else:
             new["status"] = INSTRUCTOR_REVIEW
 
     return new, effective, notes
+
+
+def _complete(state: dict) -> None:
+    state["status"] = COMPLETED
+    if state["passed_regular_count"]:
+        state["final_score"] = round(state["passed_regular_score_sum"] / state["passed_regular_count"], 2)
 
 
 def diff(before: dict, after: dict) -> Dict[str, dict]:

@@ -22,7 +22,9 @@ EXPECTED_COLUMNS = [
 LESSON_TYPES = ("REGULAR", "PRACTICE")
 
 # Factor to convert each supported speed unit to km/h.
-SPEED_UNITS = {"kmh": 1.0, "km/h": 1.0, "mph": 1.609344, "ms": 3.6, "m/s": 3.6}
+SPEED_UNITS = {"kmh": 1.0, "mph": 1.609344, "ms": 3.6}
+# Spellings accepted in the header, normalised before fingerprinting.
+SPEED_UNIT_ALIASES = {"km/h": "kmh", "kph": "kmh", "m/s": "ms"}
 
 # Identifiers end up in DynamoDB keys and S3 paths, so keep them boring.
 ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
@@ -120,7 +122,7 @@ def parse(data: bytes) -> Lesson:
         raise LessonFileError("BAD_COLUMNS", ",".join(columns)[:200])
     i += 1
 
-    factor = SPEED_UNITS[header["speed_unit"].lower()]
+    factor = SPEED_UNITS[header["speed_unit"]]
     t_ms, speed, a_long, a_lat, steer, limit = [], [], [], [], [], []
     body = hashlib.sha256()
     for line_no in range(i, len(lines)):
@@ -166,8 +168,11 @@ def _validate_header(header: Dict[str, str]) -> None:
             raise LessonFileError("BAD_ID", key)
     if header["lesson_type"] not in LESSON_TYPES:
         raise LessonFileError("BAD_LESSON_TYPE", header["lesson_type"][:20])
-    if header["speed_unit"].lower() not in SPEED_UNITS:
+    unit = header["speed_unit"].strip().lower()
+    unit = SPEED_UNIT_ALIASES.get(unit, unit)
+    if unit not in SPEED_UNITS:
         raise LessonFileError("BAD_SPEED_UNIT", header["speed_unit"][:20])
+    header["speed_unit"] = unit  # canonical, so "km/h" and "kmh" fingerprint the same
     try:
         rate = float(header["sample_rate_hz"])
     except ValueError:

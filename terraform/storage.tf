@@ -59,7 +59,11 @@ resource "aws_s3_bucket_lifecycle_configuration" "raw" {
       days          = 180
       storage_class = "GLACIER_IR"
     }
-    noncurrent_version_expiration { noncurrent_days = 30 }
+    # Overwritten versions may be the recording an audit record refers to: keep them, cheaply.
+    noncurrent_version_transition {
+      noncurrent_days = 30
+      storage_class   = "GLACIER_IR"
+    }
   }
 
   rule {

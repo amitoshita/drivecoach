@@ -144,7 +144,7 @@ locals {
       },
       { Effect = "Allow", Action = ["dynamodb:Scan"], Resource = aws_dynamodb_table.rules.arn },
       # Needed to sign the short-lived raw-file download links.
-      { Effect = "Allow", Action = ["s3:GetObject"], Resource = "${aws_s3_bucket.raw.arn}/incoming/*" },
+      { Effect = "Allow", Action = ["s3:GetObject", "s3:GetObjectVersion"], Resource = "${aws_s3_bucket.raw.arn}/incoming/*" },
       local.kms_read,
     ]
     authorizer = [
