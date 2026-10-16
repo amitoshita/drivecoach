@@ -197,7 +197,7 @@ resource "aws_iam_role_policy" "deploy" {
           "apigateway:*", "cloudwatch:*", "logs:DescribeLogGroups", "logs:ListTagsForResource",
           "lambda:CreateEventSourceMapping", "lambda:GetEventSourceMapping", "lambda:UpdateEventSourceMapping",
           "lambda:DeleteEventSourceMapping", "lambda:ListEventSourceMappings",
-          "sqs:ListQueues", "s3:ListAllMyBuckets", "sts:GetCallerIdentity", "iam:ListRoles",
+          "sqs:ListQueues", "s3:ListAllMyBuckets", "sts:GetCallerIdentity", "iam:ListRoles", "ssm:DescribeParameters",
         ]
         Resource = "*"
       },
