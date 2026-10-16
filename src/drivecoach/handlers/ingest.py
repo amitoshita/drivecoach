@@ -115,6 +115,7 @@ def process_object(bucket: str, key: str) -> None:
         # Fall through: re-request evaluation. It is idempotent, and it covers
         # a previous attempt that stored the lesson but crashed before enqueuing.
 
+    store.index_lesson(lesson.student_id, lesson.lesson_id)
     request_evaluation(lesson.student_id, lesson.lesson_id, lesson.fingerprint)
 
 

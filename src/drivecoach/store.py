@@ -117,12 +117,33 @@ def get_lesson(lesson_id: str) -> Optional[dict]:
     return from_dynamo(item) if item else None
 
 
-def lessons_for_student(student_id: str) -> List[dict]:
-    items = _query_all(lessons_table(), IndexName="by_student",
-                       KeyConditionExpression=Key("student_id").eq(student_id))
-    # GSI reads are eventually consistent: the lesson that triggered this
-    # evaluation may be missing. Callers re-read it by key (see evaluate.py).
-    return [from_dynamo(i) for i in items]
+def index_lesson(student_id: str, lesson_id: str) -> None:
+    """Add the lesson to the student's lesson index (record=LESSONS).
+
+    The evaluator reads this item with a strongly consistent read, so a lesson
+    stored just before can never be missed (a GSI query could miss it).
+    ADD on a string set is idempotent under retries.
+    """
+    students_table().update_item(
+        Key={"student_id": student_id, "record": "LESSONS"},
+        UpdateExpression="ADD lesson_ids :id",
+        ExpressionAttributeValues={":id": {lesson_id}},
+    )
+
+
+def get_lessons(lesson_ids) -> List[dict]:
+    """Strongly consistent batch read of lessons by key."""
+    client = lessons_table().meta.client
+    name = os.environ["LESSONS_TABLE"]
+    ids = sorted(lesson_ids)
+    found = []
+    for start in range(0, len(ids), 100):
+        request = {name: {"Keys": [{"lesson_id": i} for i in ids[start:start + 100]], "ConsistentRead": True}}
+        while request:
+            page = client.batch_get_item(RequestItems=request)
+            found.extend(page["Responses"].get(name, []))
+            request = page.get("UnprocessedKeys") or None
+    return [from_dynamo(i) for i in found]
 
 
 # ---------------- evaluations (append-only audit) ----------------
@@ -158,7 +179,10 @@ def append_evaluation(record: dict) -> dict:
 # ---------------- students ----------------
 
 def get_student(student_id: str) -> Optional[dict]:
-    """Return {"initial": ..., "state": ..., "state_version": ...} or None if unknown."""
+    """Return {"initial", "state", "state_version", "lesson_ids"}, or None if nothing is known.
+
+    "initial" is None for a student who is not enrolled but has lessons.
+    """
     items = _query_all(students_table(), KeyConditionExpression=Key("student_id").eq(student_id),
                        ConsistentRead=True)
     if not items:
@@ -171,6 +195,7 @@ def get_student(student_id: str) -> Optional[dict]:
         "state": current["state"] if current else None,
         "state_version": current["state_version"] if current else 0,
         "updated_at": current.get("updated_at") if current else None,
+        "lesson_ids": set(records.get("LESSONS", {}).get("lesson_ids", [])),
     }
 
 

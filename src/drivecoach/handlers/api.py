@@ -59,7 +59,7 @@ def respond(status: int, body: dict) -> dict:
 
 def get_student(student_id: str):
     student = store.get_student(student_id)
-    if student is None:
+    if student is None or student["initial"] is None:
         return None
     state = student["state"] or student["initial"]
     evaluations = latest_per_lesson(store.evaluations_for_student(student_id, limit=500))

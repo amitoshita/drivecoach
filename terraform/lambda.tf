@@ -107,6 +107,8 @@ locals {
         Action   = ["dynamodb:PutItem", "dynamodb:GetItem", "dynamodb:UpdateItem"]
         Resource = aws_dynamodb_table.lessons.arn
       },
+      # Per-student lesson index (record=LESSONS) used by the evaluator.
+      { Effect = "Allow", Action = ["dynamodb:UpdateItem"], Resource = aws_dynamodb_table.students.arn },
       { Effect = "Allow", Action = ["sqs:SendMessage"], Resource = aws_sqs_queue.evaluate.arn },
       local.kms_write,
     ]
@@ -118,8 +120,8 @@ locals {
       },
       {
         Effect   = "Allow"
-        Action   = ["dynamodb:GetItem", "dynamodb:Query"]
-        Resource = [aws_dynamodb_table.lessons.arn, "${aws_dynamodb_table.lessons.arn}/index/by_student"]
+        Action   = ["dynamodb:BatchGetItem"]
+        Resource = aws_dynamodb_table.lessons.arn
       },
       {
         # PutItem only (with a condition in code): the audit log is append-only.

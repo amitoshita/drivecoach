@@ -219,3 +219,21 @@ def test_authorizer(aws, monkeypatch):
     assert authorizer.handler({"headers": {"X-Api-Key": "s3cret"}}, Ctx()) == {"isAuthorized": True}
     assert authorizer.handler({"headers": {"x-api-key": "nope"}}, Ctx()) == {"isAuthorized": False}
     assert authorizer.handler({"headers": {}}, Ctx()) == {"isAuthorized": False}
+
+
+def test_lesson_of_unknown_student_is_kept_and_evaluated(aws, upload_files, tmp_path):
+    source = next(p for p in upload_files if p.name == "L-1001.csv").read_bytes()
+    other = source.replace(b"# lesson_id: L-1001", b"# lesson_id: L-9001").replace(
+        b"# student_id: S-001", b"# student_id: S-404")
+    path = ROOT / "sample_data" / "lessons" / "CAR-01" / "2026-10-05" / "L-1001.csv"
+    key = "incoming/CAR-01/2026-10-05/L-9001.csv"
+    aws["s3"].put_object(Bucket=BUCKET, Key=key, Body=other)
+    event = {"Records": [{"eventName": "ObjectCreated:Put",
+                          "s3": {"bucket": {"name": BUCKET}, "object": {"key": key}}}]}
+    aws["ingest"].handler({"Records": [{"messageId": "m1", "body": json.dumps(event)}]}, Ctx())
+    drain(aws)
+    lesson = api_get(aws, "lessons", "L-9001")[1]
+    assert lesson["evaluation"]["result"] == "PASS"
+    assert "unknown student" in lesson["evaluation"]["notes"][0]
+    assert api_get(aws, "students", "S-404")[0] == 404
+    assert path.exists()

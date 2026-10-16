@@ -26,8 +26,7 @@ def handler(event, context):
         if student_id in done:
             continue  # one rebuild already covers every lesson of this student
         try:
-            rebuild_student(student_id, trigger=body.get("lesson_id") or body.get("reason", "manual"),
-                            required_lesson=body.get("lesson_id"))
+            rebuild_student(student_id, trigger=body.get("lesson_id") or body.get("reason", "manual"))
             done.add(student_id)
         except Exception as exc:
             log.error("evaluate.failed", student_id=student_id, error=type(exc).__name__,
@@ -38,18 +37,14 @@ def handler(event, context):
     return {"batchItemFailures": []}
 
 
-def rebuild_student(student_id: str, trigger: str, required_lesson: str = None) -> dict:
-    student = store.get_student(student_id)
-    lessons = store.lessons_for_student(student_id)
-    if required_lesson and required_lesson not in {l["lesson_id"] for l in lessons}:
-        # The by_student index is eventually consistent; read the lesson directly.
-        lesson = store.get_lesson(required_lesson)
-        if lesson is None:
-            raise RuntimeError(f"lesson {required_lesson} not found yet")
-        lessons.append(lesson)
+def rebuild_student(student_id: str, trigger: str) -> dict:
+    student = store.get_student(student_id) or {"initial": None, "state": None, "lesson_ids": set()}
+    lessons = store.get_lessons(student["lesson_ids"])
+    if len(lessons) != len(student["lesson_ids"]):
+        raise RuntimeError(f"lesson index of {student_id} references missing lessons")
 
     rule_sets = store.load_rule_sets()
-    initial = student["initial"] if student else None
+    initial = student["initial"]
     final, steps = progress.replay(initial, lessons, rule_sets)
 
     written = 0
@@ -68,7 +63,7 @@ def rebuild_student(student_id: str, trigger: str, required_lesson: str = None) 
         if previous:
             log.metric("Reevaluations")
 
-    if student is None:
+    if initial is None:
         log.warning("student.unknown", student_id=student_id, lessons=len(lessons))
         log.metric("UnknownStudentLessons")
     elif final != student["state"]:
