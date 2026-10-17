@@ -33,6 +33,12 @@ variable "budget_email" {
   type        = string
 }
 
+variable "create_budget" {
+  description = "Set false if the budget alert was already created by hand in the console"
+  type        = bool
+  default     = true
+}
+
 variable "budget_usd" {
   type    = number
   default = 10
@@ -56,6 +62,7 @@ locals {
 # Budget alert (required before deploying anything)
 # ---------------------------------------------------------------
 resource "aws_budgets_budget" "monthly" {
+  count        = var.create_budget ? 1 : 0
   name         = "${local.name}-monthly"
   budget_type  = "COST"
   limit_amount = tostring(var.budget_usd)
