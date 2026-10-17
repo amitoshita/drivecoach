@@ -77,11 +77,16 @@ def aws(monkeypatch):
                "ingest": ingest, "evaluate": evaluate, "api": api, "store": store}
 
 
-def upload(aws, path, key=None):
+_sequencer = iter(range(1, 10**6))
+
+
+def upload(aws, path, key=None, sequencer=None):
     key = key or "incoming/" + str(path.relative_to(ROOT / "sample_data" / "lessons"))
     aws["s3"].put_object(Bucket=BUCKET, Key=key, Body=path.read_bytes())
+    sequencer = sequencer or f"{next(_sequencer):016X}"
     s3_event = {"Records": [{"eventName": "ObjectCreated:Put",
-                             "s3": {"bucket": {"name": BUCKET}, "object": {"key": key}}}]}
+                             "s3": {"bucket": {"name": BUCKET},
+                                    "object": {"key": key, "sequencer": sequencer}}}]}
     out = aws["ingest"].handler({"Records": [{"messageId": key, "body": json.dumps(s3_event)}]}, Ctx())
     assert out == {"batchItemFailures": []}
     return key
@@ -162,9 +167,9 @@ def test_late_file_reevaluates_and_keeps_history(aws, upload_files):
 
 def test_redelivery_is_idempotent(aws, upload_files):
     path = upload_files[0]
-    upload(aws, path)
+    upload(aws, path, sequencer="00A1")
     drain(aws)
-    upload(aws, path)          # S3/SQS at-least-once delivery
+    upload(aws, path, sequencer="00A1")   # S3/SQS at-least-once: same event delivered twice
     drain(aws)
     trail = api_get(aws, "lessons", "L-1001")[1]["audit_trail"]
     assert len(trail) == 1
@@ -244,3 +249,21 @@ def test_malformed_evaluate_message_does_not_fail_the_batch(aws, upload_files):
     records += [{"messageId": m["MessageId"], "body": m["Body"]} for m in msgs]
     assert aws["evaluate"].handler({"Records": records}, Ctx()) == {"batchItemFailures": []}
     assert api_get(aws, "lessons", "L-1001")[1]["evaluation"]["result"] == "PASS"
+
+
+def test_fifo_dedup_is_per_upload_event_not_per_lesson(aws, upload_files):
+    """Live bug: dedup ids built from lesson content made SQS drop a re-upload of the
+    same recording within its 5-minute window, so the lesson was never evaluated.
+    (moto forgets ids once a message is consumed, so both sends happen before draining.)"""
+    path = next(p for p in upload_files if p.name == "L-1001.csv")
+
+    def queued():
+        attrs = aws["sqs"].get_queue_attributes(QueueUrl=aws["queue_url"],
+                                                AttributeNames=["ApproximateNumberOfMessages"])
+        return int(attrs["Attributes"]["ApproximateNumberOfMessages"])
+
+    upload(aws, path, sequencer="00B1")
+    upload(aws, path, sequencer="00B1")    # S3 redelivers the same event: deduplicated
+    assert queued() == 1
+    upload(aws, path, sequencer="00B2")    # a new upload event: must get through
+    assert queued() == 2

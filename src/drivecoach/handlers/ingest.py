@@ -11,6 +11,7 @@ Failure policy:
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from urllib.parse import unquote_plus
@@ -45,8 +46,8 @@ def handler(event, context):
     failures = []
     for message in event.get("Records", []):
         try:
-            for bucket, key in s3_objects(json.loads(message["body"])):
-                process_object(bucket, key)
+            for bucket, key, sequencer in s3_objects(json.loads(message["body"])):
+                process_object(bucket, key, sequencer)
         except Exception as exc:  # transient: let SQS retry, then DLQ
             log.error("ingest.failed", message_id=message["messageId"], error=type(exc).__name__,
                       detail=str(exc)[:300])
@@ -56,14 +57,15 @@ def handler(event, context):
 
 
 def s3_objects(body: dict):
-    """Yield (bucket, key) from an S3 event notification (skips s3:TestEvent)."""
+    """Yield (bucket, key, sequencer) from an S3 event notification (skips s3:TestEvent)."""
     for record in body.get("Records", []):
         if not record.get("eventName", "").startswith("ObjectCreated"):
             continue
-        yield record["s3"]["bucket"]["name"], unquote_plus(record["s3"]["object"]["key"])
+        obj = record["s3"]["object"]
+        yield record["s3"]["bucket"]["name"], unquote_plus(obj["key"]), obj.get("sequencer")
 
 
-def process_object(bucket: str, key: str) -> None:
+def process_object(bucket: str, key: str, sequencer: str = None) -> None:
     head = s3().head_object(Bucket=bucket, Key=key)
     if head["ContentLength"] > MAX_FILE_BYTES:
         quarantine(bucket, key, "FILE_TOO_LARGE")
@@ -119,15 +121,19 @@ def process_object(bucket: str, key: str) -> None:
         # a previous attempt that stored the lesson but crashed before enqueuing.
 
     store.index_lesson(lesson.student_id, lesson.lesson_id)
-    request_evaluation(lesson.student_id, lesson.lesson_id, lesson.fingerprint)
+    # Deduplicate per upload event, not per lesson content: S3 redelivering the same
+    # event is dropped, but re-processing the same lesson later (replay, re-upload)
+    # must never be swallowed by the FIFO queue's 5-minute deduplication window.
+    upload_event = f"{bucket}/{key}#{sequencer or head.get('VersionId') or head.get('ETag')}"
+    request_evaluation(lesson.student_id, lesson.lesson_id, upload_event)
 
 
-def request_evaluation(student_id: str, lesson_id: str, fingerprint: str) -> None:
+def request_evaluation(student_id: str, lesson_id: str, upload_event: str) -> None:
     sqs().send_message(
         QueueUrl=os.environ["EVALUATE_QUEUE_URL"],
         MessageBody=json.dumps({"student_id": student_id, "lesson_id": lesson_id}),
         MessageGroupId=student_id,
-        MessageDeduplicationId=f"{lesson_id}-{fingerprint[:32]}",
+        MessageDeduplicationId=hashlib.sha256(upload_event.encode()).hexdigest(),
     )
 
 

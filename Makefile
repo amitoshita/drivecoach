@@ -13,7 +13,7 @@ QUEUE  ?= ingest
 # BUDGET=false if the $$10 budget alert was already created in the console
 BUDGET ?= true
 
-.PHONY: test lint bootstrap init deploy destroy upload upload-burst results api-key replay-dlq clean
+.PHONY: test lint bootstrap init deploy destroy upload upload-burst results api-key replay-dlq reset clean
 
 test:
 	$(PYTHON) -m pytest -q
@@ -48,6 +48,10 @@ destroy: init
 
 upload:
 	./scripts/upload_lessons.sh "$$($(TF) output -raw raw_bucket)" incoming $(DELAY)
+
+# Demo/test only: forget all processed lessons (keeps rules and initial students).
+reset:
+	$(PYTHON) scripts/reset_data.py "$$($(TF) output -raw raw_bucket)" --yes
 
 # Everything at once, in random order: the Level 2 ordering test.
 upload-burst:
