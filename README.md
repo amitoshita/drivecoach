@@ -118,7 +118,8 @@ make destroy                # one command: tear everything down
 ```
 
 Other targets: `make test`, `make upload-burst` (all files at once, shuffled),
-`make api-key`, `make replay-dlq QUEUE=ingest|evaluate`.
+`make api-key`, `make replay-dlq QUEUE=ingest|evaluate`, `make reset` (demo only: forget all
+processed lessons, keep rules and initial students, so the files can be uploaded again).
 
 ### Calling the API
 
@@ -141,9 +142,13 @@ curl -s -H "x-api-key: $KEY" $API/lessons/L-1015 | jq
 
 ## Results on the provided data
 
-Uploaded with `scripts/upload_lessons.sh` (field order). Produced by `make results`.
-The same final states come out of `make upload-burst` (all files at once, random order),
-and the test suite checks this for several random orders.
+Produced on the live deployment (us-east-1, 2026-10-17) by `scripts/upload_lessons.sh` in
+field order, then `make results`, which reads everything back through the authenticated API.
+
+**Ordering, verified live:** after `make reset`, `make upload-burst` (all 16 files in parallel,
+random order) gave **identical** results and final states. Lessons that arrived before an
+earlier lesson of the same student were re-judged when it arrived: 12 re-evaluations, each
+audit record linking to the one it `supersedes`. The test suite also checks 5 random orders.
 
 <!-- RESULTS:START -->
 ### Lessons (in field upload order)
@@ -249,6 +254,18 @@ Committed unchanged as the first commit (`git log`), so every change below is vi
     type, so I apply it (see assumptions).
 11. `upload_lessons.sh` uploads with a fixed delay, which hides ordering bugs. I added
     `upload_burst.sh` (all files in parallel, shuffled) to prove order independence.
+
+**Bugs I found in my own design while testing**
+
+12. *Eventually consistent index (found in review).* The evaluator first listed a student's lessons
+    through a DynamoDB GSI, which is eventually consistent. In a burst, the last rebuild could miss a lesson
+    written milliseconds before. Replaced it with a per-student lesson index read with strong consistency.
+13. *FIFO deduplication swallowed messages (found on the live deployment).* Re-running the
+    upload within 5 minutes of a previous run stored the lessons but never evaluated them. The evaluate
+    queue's deduplication ID was built from the lesson's content, and SQS FIFO silently drops a repeated ID
+    for 5 minutes. A legitimate replay would have been lost the same way. The ID now comes from the
+    S3 event `sequencer` (unique per upload, stable on redelivery). The moto tests missed it because
+    moto forgets IDs once a message is consumed. The regression test now sends both messages before draining.
 
 ---
 
@@ -439,7 +456,7 @@ Not attempted yet. Priority went to correctness, security and the required items
 
 ```bash
 python -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
-make test        # 58 tests, ~20 s
+make test        # 59 tests, ~20 s
 ```
 
 - **Golden tests** (`tests/test_pipeline_golden.py`): every lesson result and final student state
