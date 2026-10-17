@@ -10,7 +10,8 @@ TF     := terraform -chdir=terraform
 PYTHON ?= $(shell [ -x .venv/bin/python ] && echo .venv/bin/python || echo python3)
 DELAY  ?= 5
 QUEUE  ?= ingest
-BUDGET ?= true  # BUDGET=false if the $$10 budget alert already exists
+# BUDGET=false if the $$10 budget alert was already created in the console
+BUDGET ?= true
 
 .PHONY: test lint bootstrap init deploy destroy upload upload-burst results api-key replay-dlq clean
 
