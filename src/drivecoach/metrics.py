@@ -15,9 +15,11 @@ OVER_LIMIT_MARGIN_KMH = 5.0
 MOVING_THRESHOLD_KMH = 2.0
 G = 9.81
 
-# Stored metrics are rounded so that re-evaluating the stored values gives
-# exactly the same result as the original evaluation (audit reproducibility).
-PRECISION = 4
+# Metrics are rounded once, before evaluation, and stored with that value, so
+# re-evaluating the stored metrics reproduces the original result exactly.
+# 10 decimals: rounding can never move a value across a rule threshold
+# (4 decimals did: 5.0000417 % over the limit became 5.0 and PASSED).
+PRECISION = 10
 
 METRIC_NAMES = (
     "duration_min", "distance_km", "avg_moving_speed_kmh", "pct_time_over_limit",

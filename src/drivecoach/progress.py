@@ -19,9 +19,31 @@ STATE_FIELDS = ("program", "lessons_completed", "review_count", "next_lesson_typ
                 "status", "final_score", "passed_regular_count", "passed_regular_score_sum")
 
 
+PROGRAMS = ("STANDARD", "EXTENDED")
+STATUSES = (ACTIVE, COMPLETED, INSTRUCTOR_REVIEW)
+LESSON_TYPES = (REGULAR, PRACTICE)
+
+
+def validate_state(state: dict) -> dict:
+    """Fail loudly on an impossible state instead of crashing mid-replay."""
+    problems = []
+    if state.get("program") not in PROGRAMS:
+        problems.append(f"program {state.get('program')!r}")
+    if state.get("status") not in STATUSES:
+        problems.append(f"status {state.get('status')!r}")
+    if state.get("next_lesson_type") not in LESSON_TYPES:
+        problems.append(f"next_lesson_type {state.get('next_lesson_type')!r}")
+    for key in ("lessons_completed", "review_count"):
+        if not isinstance(state.get(key), int) or state[key] < 0:
+            problems.append(f"{key} {state.get(key)!r}")
+    if problems:
+        raise ValueError("invalid student state: " + ", ".join(problems))
+    return state
+
+
 def initial_state(row: dict) -> dict:
     """Build a state from the operational (non-PII) columns of students.csv."""
-    return {
+    return validate_state({
         "program": row["program"],
         "lessons_completed": int(row["lessons_completed"]),
         "review_count": int(row["review_count"]),
@@ -31,7 +53,7 @@ def initial_state(row: dict) -> dict:
         # Running totals for final_score: only lessons passed in *this* system.
         "passed_regular_count": 0,
         "passed_regular_score_sum": 0.0,
-    }
+    })
 
 
 def apply(state: dict, lesson_type: str, lesson_score: float, result: str,
@@ -102,7 +124,7 @@ def replay(initial: Optional[dict], lessons: Iterable[dict],
     Returns (final_state, steps); each step is a complete audit entry.
     An unknown student (initial is None) still gets every lesson evaluated.
     """
-    state = copy.deepcopy(initial) if initial is not None else None
+    state = validate_state(copy.deepcopy(initial)) if initial is not None else None
     steps = []
     for lesson in sorted(lessons, key=lesson_order_key):
         rules = rules_engine.select(rule_sets, lesson["started_at"])

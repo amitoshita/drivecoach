@@ -111,6 +111,8 @@ def parse(data: bytes) -> Lesson:
         key, sep, value = line[1:].partition(":")
         if not sep:
             raise LessonFileError("BAD_HEADER_LINE", f"line {i}")
+        if key.strip() in header:
+            raise LessonFileError("DUPLICATE_HEADER", key.strip()[:40])
         header[key.strip()] = value.strip()
 
     _validate_header(header)
@@ -189,15 +191,14 @@ def _validate_header(header: Dict[str, str]) -> None:
 
 def _validate_samples(header, t_ms, speed, a_long, a_lat, limit) -> None:
     step = 1000.0 / float(header["sample_rate_hz"])
+    # Metrics count samples, so a dropped sample silently shortens duration and
+    # distance, and a wrong sample_rate_hz header skews every metric. Each step
+    # must match the declared rate; up to 25 % jitter is tolerated (±5 ms at 50 Hz).
     for prev, cur in zip(t_ms, t_ms[1:]):
         if cur <= prev:
             raise LessonFileError("NON_MONOTONIC_TIME", f"t_ms {cur}")
-    # Metrics count samples, so a file with dropped samples would silently
-    # under-report duration and distance. Allow small jitter only.
-    expected_span = (len(t_ms) - 1) * step
-    actual_span = t_ms[-1] - t_ms[0]
-    if abs(actual_span - expected_span) > max(step, 0.01 * expected_span):
-        raise LessonFileError("SAMPLE_GAP", f"span {actual_span:.0f}ms, expected {expected_span:.0f}ms")
+        if not 0.75 * step <= cur - prev <= 1.25 * step:
+            raise LessonFileError("SAMPLE_GAP", f"{cur - prev:.0f}ms step at t_ms {prev:.0f}, expected {step:.0f}ms")
     if min(speed) < 0 or max(speed) > MAX_SPEED_KMH:
         raise LessonFileError("IMPLAUSIBLE_SPEED")
     if max(abs(v) for v in a_long) > MAX_ABS_ACCEL_MS2 or max(abs(v) for v in a_lat) > MAX_ABS_ACCEL_MS2:

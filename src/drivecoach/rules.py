@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import operator
+from datetime import date
 from typing import Dict, Iterable, List, Optional, Tuple
 
 from .metrics import METRIC_NAMES
@@ -48,6 +49,10 @@ def validate(rules: dict) -> dict:
                 raise RulesError(f"{group}: unknown op {cond.get('op')!r}")
             if not isinstance(cond.get("value"), (int, float)) or isinstance(cond.get("value"), bool):
                 raise RulesError(f"{group}: value must be a number")
+    try:
+        date.fromisoformat(str(rules["effective_from"]))
+    except ValueError:
+        raise RulesError(f"effective_from must be YYYY-MM-DD, got {rules['effective_from']!r}")
     if not isinstance(rules["min_duration_min"], (int, float)):
         raise RulesError("min_duration_min must be a number")
     programs = rules["programs"]

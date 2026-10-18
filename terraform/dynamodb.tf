@@ -161,6 +161,17 @@ resource "aws_dynamodb_table_item" "student_initial" {
   hash_key   = aws_dynamodb_table.students.hash_key
   range_key  = aws_dynamodb_table.students.range_key
 
+  # Reject a bad students.csv at plan time instead of crashing the evaluator later.
+  lifecycle {
+    precondition {
+      condition = (contains(["STANDARD", "EXTENDED"], each.value.program)
+        && contains(["ACTIVE", "COMPLETED", "INSTRUCTOR_REVIEW"], each.value.status)
+        && contains(["REGULAR", "PRACTICE"], each.value.next_lesson_type)
+      && each.value.lessons_completed >= 0 && each.value.review_count >= 0)
+      error_message = "students.csv row ${each.key} has an invalid program, status, next_lesson_type or count."
+    }
+  }
+
   item = jsonencode({
     student_id = { S = each.key }
     record     = { S = "INITIAL" }

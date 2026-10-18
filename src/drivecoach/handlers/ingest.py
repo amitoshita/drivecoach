@@ -67,17 +67,17 @@ def s3_objects(body: dict):
 
 def process_object(bucket: str, key: str, sequencer: str = None) -> None:
     head = s3().head_object(Bucket=bucket, Key=key)
+    version = {"VersionId": head["VersionId"]} if head.get("VersionId") else {}
     if head["ContentLength"] > MAX_FILE_BYTES:
-        quarantine(bucket, key, "FILE_TOO_LARGE")
+        quarantine(bucket, key, "FILE_TOO_LARGE", version=version)
         return
     # Read exactly the version we sized, so version id, bytes and fingerprint agree.
-    version = {"VersionId": head["VersionId"]} if head.get("VersionId") else {}
     body = s3().get_object(Bucket=bucket, Key=key, **version)["Body"].read()
 
     try:
         lesson = lesson_file.parse(body)
     except lesson_file.LessonFileError as exc:
-        quarantine(bucket, key, exc.code, exc.detail)
+        quarantine(bucket, key, exc.code, exc.detail, version=version)
         return
 
     lesson_metrics, events = metrics.compute(lesson)
@@ -111,7 +111,8 @@ def process_object(bucket: str, key: str, sequencer: str = None) -> None:
     except store.DuplicateLesson as dup:
         if dup.existing["fingerprint"] != lesson.fingerprint:
             # Same lesson_id, different recording: never silently pick one.
-            quarantine(bucket, key, "CONFLICTING_LESSON_ID", f"lesson {lesson.lesson_id} already stored")
+            quarantine(bucket, key, "CONFLICTING_LESSON_ID", f"lesson {lesson.lesson_id} already stored",
+                       version=version)
             return
         if dup.existing["s3_key"] != key:
             store.record_duplicate_upload(lesson.lesson_id, key, h.get("uploaded_at"))
@@ -139,10 +140,11 @@ def request_evaluation(student_id: str, lesson_id: str, upload_event: str) -> No
     )
 
 
-def quarantine(bucket: str, key: str, code: str, detail: str = "") -> None:
-    """Keep the original in place (raw archive) and copy it under quarantine/ with the reason."""
+def quarantine(bucket: str, key: str, code: str, detail: str = "", version: dict = None) -> None:
+    """Keep the original in place (raw archive) and copy it under quarantine/ with the reason.
+    `version` pins the copy to the object version that was actually inspected."""
     target = QUARANTINE_PREFIX + key
-    s3().copy_object(Bucket=bucket, Key=target, CopySource={"Bucket": bucket, "Key": key},
+    s3().copy_object(Bucket=bucket, Key=target, CopySource={"Bucket": bucket, "Key": key, **(version or {})},
                      MetadataDirective="REPLACE", Metadata={"reason": code},
                      ServerSideEncryption="aws:kms", SSEKMSKeyId=os.environ["KMS_KEY_ARN"])
     log.warning("lesson.rejected", s3_key=key, reason=code, detail=detail[:200])
