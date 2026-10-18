@@ -14,6 +14,7 @@ from collections import Counter
 from datetime import datetime, timezone
 
 import boto3
+from botocore.config import Config
 
 from .. import log, rules as rules_engine, store
 
@@ -25,7 +26,9 @@ _s3 = None
 def s3():
     global _s3
     if _s3 is None:
-        _s3 = boto3.client("s3")
+        # Objects are SSE-KMS encrypted, and S3 rejects presigned links to them
+        # unless they are signed with SigV4 (boto3 may default to SigV2 here).
+        _s3 = boto3.client("s3", config=Config(signature_version="s3v4"))
     return _s3
 
 

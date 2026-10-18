@@ -130,6 +130,8 @@ def test_field_order_end_to_end(aws, upload_files):
     assert len(lesson["audit_trail"]) == 1                      # retry did not re-evaluate
     assert lesson["duplicate_uploads"][0]["s3_key"].endswith("L-1007_retry1.csv")
     assert lesson["raw_file_url"].startswith("https://")
+    # Live bug: a SigV2 link is refused by S3 for KMS-encrypted objects (HTTP 400).
+    assert "X-Amz-Algorithm=AWS4-HMAC-SHA256" in lesson["raw_file_url"]
     assert "full_name" not in json.dumps(lesson) and "national_id" not in json.dumps(lesson)
 
 
