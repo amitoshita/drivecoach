@@ -28,6 +28,16 @@ variable "github_repo" {
   type        = string
 }
 
+variable "github_subject_prefix" {
+  description = <<-EOT
+    OIDC "sub" prefix GitHub sends for this repo. Newer repos use immutable IDs,
+    e.g. repo:owner@123/name@456 (see GET /repos/{owner}/{repo}/actions/oidc/customization/sub).
+    Empty = classic repo:owner/name.
+  EOT
+  type        = string
+  default     = ""
+}
+
 variable "budget_email" {
   description = "Where the budget alert goes"
   type        = string
@@ -56,6 +66,7 @@ data "aws_caller_identity" "current" {}
 locals {
   account_id = data.aws_caller_identity.current.account_id
   name       = var.project_name
+  sub_prefix = var.github_subject_prefix != "" ? var.github_subject_prefix : "repo:${var.github_repo}"
 }
 
 # ---------------------------------------------------------------
@@ -152,8 +163,8 @@ resource "aws_iam_role" "deploy" {
         StringEquals = { "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com" }
         # Only the main branch of this one repository can deploy.
         StringLike = { "token.actions.githubusercontent.com:sub" = [
-          "repo:${var.github_repo}:ref:refs/heads/main",
-          "repo:${var.github_repo}:environment:production",
+          "${local.sub_prefix}:ref:refs/heads/main",
+          "${local.sub_prefix}:environment:production",
         ] }
       }
     }]

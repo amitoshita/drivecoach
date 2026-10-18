@@ -25,7 +25,8 @@ lint:
 bootstrap:
 	@test -n "$(GITHUB_REPO)" -a -n "$(EMAIL)" || (echo "usage: make bootstrap GITHUB_REPO=owner/repo EMAIL=you@example.com" && exit 1)
 	terraform -chdir=terraform/bootstrap init -input=false
-	terraform -chdir=terraform/bootstrap apply -var region=$(REGION) -var github_repo=$(GITHUB_REPO) -var budget_email=$(EMAIL) -var create_budget=$(BUDGET)
+	terraform -chdir=terraform/bootstrap apply -var region=$(REGION) -var github_repo=$(GITHUB_REPO) -var budget_email=$(EMAIL) -var create_budget=$(BUDGET) \
+		-var github_subject_prefix="$$(gh api repos/$(GITHUB_REPO)/actions/oidc/customization/sub --jq '.sub_claim_prefix // empty' 2>/dev/null)"
 	@printf 'bucket = "%s"\nkey    = "drivecoach/terraform.tfstate"\nregion = "%s"\n' \
 		"$$(terraform -chdir=terraform/bootstrap output -raw state_bucket)" "$(REGION)" > terraform/backend.hcl
 	@echo "wrote terraform/backend.hcl"
