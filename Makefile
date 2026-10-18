@@ -68,4 +68,6 @@ results:
 
 # Move messages from a DLQ back to its source queue once the cause is fixed.
 replay-dlq:
-	aws sqs start-message-move-task --source-arn "$$($(TF) output -raw $(QUEUE)_dlq_arn)"
+	aws sqs start-message-move-task --source-arn "$$($(TF) output -raw $(QUEUE)_dlq_arn)" \
+		--destination-arn "$$(aws sqs get-queue-attributes --queue-url "$$($(TF) output -raw $(QUEUE)_queue_url)" \
+			--attribute-names QueueArn --query Attributes.QueueArn --output text)"

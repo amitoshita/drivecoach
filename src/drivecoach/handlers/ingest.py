@@ -117,6 +117,8 @@ def process_object(bucket: str, key: str, sequencer: str = None) -> None:
             store.record_duplicate_upload(lesson.lesson_id, key, h.get("uploaded_at"))
             log.info("lesson.duplicate_upload", **ids, original_key=dup.existing["s3_key"])
             log.metric("DuplicateUploads")
+        else:
+            log.info("lesson.already_stored", **ids)  # redelivery or DLQ replay of the same file
         # Fall through: re-request evaluation. It is idempotent, and it covers
         # a previous attempt that stored the lesson but crashed before enqueuing.
 
