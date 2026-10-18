@@ -469,7 +469,7 @@ may already have been told "PASS, you're done", and the late file turns that int
 
 **100× more cars** (20,000 cars, 60k lessons/day, ~4 TB/month of raw data):
 - **Ingest scales as is** (Lambda + SQS). Raise reserved concurrency and the SQS `maximum_concurrency`.
-  Pure-Python parsing (~1 s/file) becomes the main compute cost: switch to a columnar parser (numpy/polars) or Rust/Go
+  Ingest in pure Python (0.65 s/file median, measured live) becomes the main compute cost: switch to a columnar parser (numpy/polars) or Rust/Go
   to cut it by roughly 10×. Have boxes upload compressed (gzip) or Parquet.
 - **Full replay per lesson is O(lessons per student).** It is bounded (≤ ~30 lessons per student) so it still works,
   but I would add **snapshots**: store the state after each lesson and replay only from the
