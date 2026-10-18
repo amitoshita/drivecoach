@@ -17,8 +17,9 @@ copy given in the working session.
   student states agree (0 mismatches).
 - Every Required and Advanced item is implemented. Level 3 is implemented or designed as documented.
   Elixir (bonus) is missing.
-- The audit found **9 new defects**. 7 are fixed on this branch with a regression test that failed
-  before the fix. 2 need a decision or a deploy (alarm subscriber, auto-rebuild on enrolment).
+- The audit found **9 new defects**. 7 were fixed with a regression test that failed before the fix.
+  After the audit, the alarm subscriber (P2-3) was fixed by configuration and deployed. 1 stays open by design
+  (P2-5, auto-rebuild on enrolment). All fixes are merged into `main` and deployed.
   **No defect changes any result on the provided data.** The most visible one (P2-1) broke the raw-file
   download link on the live API.
 - Caveats at audit time (since resolved, see the end): the name was missing from the README, the fixes were
@@ -44,7 +45,7 @@ Status: PASS = implemented and verified by execution · PARTIAL · FAIL · MISSI
 | R9 | `upload_lessons.sh` results in README | PASS | `README.md` Results | live run 2026-10-17 + read-back vs oracle 2026-10-18 | — |
 | A1 | DLQ + replay | PASS | `queues.tf`, `make replay-dlq` | live: message → DLQ → alarm ALARM → replay → processed → OK | fixed replay target during audit |
 | A2 | Ordering: all at once / out of order | PASS | `progress.replay`, FIFO per student, consistent lesson index | live burst (identical results, 12 re-evaluations); moto: reverse, shuffled, late, retry-after | — |
-| A3 | Structured logs + ≥1 alarm | PASS | `log.py`, `observability.tf` | live: 462 app log lines, 100 % JSON; 10 alarms; alarm fired and published | P2-3 no subscriber |
+| A3 | Structured logs + ≥1 alarm | PASS | `log.py`, `observability.tf` | live: 462 app log lines, 100 % JSON; 10 alarms; alarm fired and published | P2-3 no subscriber (fixed: email subscription confirmed) |
 | A4 | Authenticated API: GET /students/{id}, /lessons/{id} | PASS | `api.tf`, `handlers/api.py`, `authorizer.py` | live matrix of 14 cases (200/401/403/404/400) | P2-1 raw link broken (fixed, deployed) |
 | A5 | Cost estimate 200 cars × 3/day | PASS | README | recomputed with 30 days and measured Lambda durations | estimate, not a bill |
 | C1 | Rules v2 without code redeploy, past decisions explainable | PARTIAL | `rules.py` select-by-date, `published.json` lock, hash in audit | unit tests (v1/v2 switch by date, immutability guard) | not exercised live; retroactive re-evaluation only designed |
@@ -86,7 +87,7 @@ which said missing samples are rejected. Fix: every step must be within ±25 % o
 This also rejects a wrong rate header. An intermediate ±50 % version let a 2× rate mismatch through; it was
 caught by `test_header_sample_rate_must_match_timestamps`. Tests: `test_any_dropped_sample_is_rejected` (RED → GREEN).
 
-**P2-3 Alarms notify nobody. FIXED (email subscription deployed; needs a one-time confirmation click).**
+**P2-3 Alarms notify nobody. FIXED (email subscription deployed and confirmed).**
 Live alarm history: `drivecoach-ingest-dlq-not-empty` OK → ALARM (09:25) → "Successfully executed action
 …drivecoach-alarms" → OK (09:30). `list-subscriptions-by-topic` is empty because `alarm_email` defaults to "".
 Fix: CI passes `alarm_email` from the `ALARM_EMAIL` repository variable (`make deploy` reads the same variable).
@@ -140,6 +141,7 @@ Details and raw output: [`TEST_RESULTS.md`](TEST_RESULTS.md).
 1. Destroy and redeploy from zero was not re-run during the audit (destructive). The initial deploy was from zero.
 2. Quarantine and conflict handling are verified on moto only, not on live S3 (needs an upload of a bad file).
 3. Memory behaviour for very large files (the 50 MB cap) is not load-tested.
+4. The CI smoke test does not cover upload or the raw-file link, so a regression there (like P2-1) would not fail CI.
 
 ## Unverified
 
@@ -150,8 +152,11 @@ Details and raw output: [`TEST_RESULTS.md`](TEST_RESULTS.md).
 ## Status after deployment (2026-10-18)
 
 - The audit branch was merged into `main`. CI run `39111693931`: tests passed, `terraform apply` updated the 4 Lambda
-  functions and created the email subscription, the smoke test passed. Plan before merging: 1 to add, 4 to change, 0 to destroy.
+  functions and created the email subscription. The CI smoke test passed; it only checks that `GET /students/S-001`
+  returns 401/403 without the key and 200 with it (it does not upload a file or fetch the raw-file link). Plan before merging: 1 to add, 4 to change, 0 to destroy.
 - Live re-check after the deploy: `GET /lessons/L-1015` raw-file link → HTTP 200 (P2-1 fixed live); no key → 401;
   `make results` → all 16 files and 4 final states equal the README tables (0 differences).
-- SNS email subscription created; status `PendingConfirmation` until the recipient clicks the AWS confirmation link.
-- Still open by design: P2-5 (auto re-evaluation after enrolment) and P3-5 (no review gate on `main`).
+- SNS email subscription created and confirmed by the recipient (`list-subscriptions` shows a subscription ARN, not
+  `PendingConfirmation`). No test alarm has been sent to it since.
+- Still open: P2-5 (auto re-evaluation after enrolment), P3-5 (no review gate on `main`), P3-6 (authorizer cold
+  starts), P3-7 (bootstrap state is local). Accepted: P3-4 (ingest IAM scope), P3-8 (API key in Terraform state).

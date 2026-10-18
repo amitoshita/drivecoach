@@ -43,6 +43,7 @@ clean:
 	rm -rf build
 
 deploy: clean init
+	@test -n "$(ALARM_EMAIL)" || (echo "ALARM_EMAIL is empty (gh not logged in?). Run: make deploy ALARM_EMAIL=you@example.com" && exit 1)
 	$(TF) apply -input=false -auto-approve -var region=$(REGION) -var alarm_email="$(ALARM_EMAIL)"
 	@echo "API: $$($(TF) output -raw api_url)   key: make api-key"
 
