@@ -194,6 +194,8 @@ resource "aws_iam_role_policy" "deploy" {
           "arn:aws:sqs:${var.region}:${local.account_id}:${local.name}-*",
           "arn:aws:dynamodb:${var.region}:${local.account_id}:table/${local.name}-*",
           "arn:aws:lambda:${var.region}:${local.account_id}:function:${local.name}-*",
+          # Queue triggers have random ids, so they cannot be matched by name.
+          "arn:aws:lambda:${var.region}:${local.account_id}:event-source-mapping:*",
           "arn:aws:logs:${var.region}:${local.account_id}:log-group:*${local.name}*",
           "arn:aws:sns:${var.region}:${local.account_id}:${local.name}-*",
           "arn:aws:ssm:${var.region}:${local.account_id}:parameter/${local.name}/*",
@@ -216,8 +218,7 @@ resource "aws_iam_role_policy" "deploy" {
           # API Gateway access logging
           "logs:CreateLogDelivery", "logs:GetLogDelivery", "logs:UpdateLogDelivery", "logs:DeleteLogDelivery",
           "logs:ListLogDeliveries", "logs:PutResourcePolicy", "logs:DescribeResourcePolicies",
-          "lambda:CreateEventSourceMapping", "lambda:GetEventSourceMapping", "lambda:UpdateEventSourceMapping",
-          "lambda:DeleteEventSourceMapping", "lambda:ListEventSourceMappings",
+          "lambda:CreateEventSourceMapping", "lambda:ListEventSourceMappings",
           "sqs:ListQueues", "s3:ListAllMyBuckets", "sts:GetCallerIdentity", "iam:ListRoles", "ssm:DescribeParameters",
         ]
         Resource = "*"
