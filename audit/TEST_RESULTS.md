@@ -1,6 +1,6 @@
 # Test results
 
-All results below come from commands actually run on 2026-10-18, on branch `audit/self-review`.
+All results below come from commands actually run on 2026-10-18, on branch `audit/self-review` (before it was merged and deployed).
 Local: macOS, Python 3.9 venv (CI runs Python 3.12, the Lambda runtime). Live: AWS account
 171379772437, us-east-1, deployment from `main` (`97245d6`).
 
@@ -205,7 +205,7 @@ SigV4 (the fix)          HTTP 200  first line: # lesson_id: L-1001
 | IAM | ingest 14, evaluate 11, api 8, authorizer 4 explicit actions; 0 wildcard actions; 0 managed policies |
 | Lambda (3 days, CloudWatch REPORT lines) | ingest 55 inv., p50 651 ms, max 2085 ms, 135/1024 MB · evaluate 50 inv., p50 78 ms, 101/512 MB · api 153 inv., p50 20 ms · authorizer 12 inv., p50 1430 ms (8 cold) |
 | Logs | 462 app lines, 462 valid JSON, 0 non-JSON; 0 PII hits in 5 log groups (incl. API access logs) |
-| DLQ alarm | OK → ALARM 09:25 → SNS publish succeeded → OK 09:30; **no subscriber** (P2-3) |
+| DLQ alarm | OK → ALARM 09:25 → SNS publish succeeded → OK 09:30; **no subscriber** at audit time (P2-3, fixed after the deploy) |
 | DLQ replay | first attempt moved 0 (no destination; message had no source queue) → Makefile fixed → moved 1, processed, idempotent |
 
 ## 6. Edge-case coverage map

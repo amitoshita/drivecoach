@@ -1,6 +1,7 @@
 # DriveCoach self-audit report
 
-Branch: `audit/self-review` (forked from `main` at `97245d6`; `main` is unchanged and is what is deployed).
+Branch: `audit/self-review` (forked from `main` at `97245d6`). **Merged into `main` and deployed by CI on
+2026-10-18; see "Status after deployment" at the end.**
 Date: 2026-10-18. Auditor: Claude (the same agent that wrote the code), treating it as someone else's submission.
 
 The assignment text is not in the repository on purpose (it is confidential). It was audited from the
@@ -20,8 +21,8 @@ copy given in the working session.
   before the fix. 2 need a decision or a deploy (alarm subscriber, auto-rebuild on enrolment).
   **No defect changes any result on the provided data.** The most visible one (P2-1) broke the raw-file
   download link on the live API.
-- Caveats before submission: the candidate's name is missing from the README; the branch fixes are
-  not deployed yet; alarms have no subscriber; Elixir is not done.
+- Caveats at audit time (since resolved, see the end): the name was missing from the README, the fixes were
+  not deployed, and alarms had no subscriber. Elixir (bonus) was deliberately not attempted.
 
 ## Requirement traceability matrix
 
@@ -44,13 +45,13 @@ Status: PASS = implemented and verified by execution · PARTIAL · FAIL · MISSI
 | A1 | DLQ + replay | PASS | `queues.tf`, `make replay-dlq` | live: message → DLQ → alarm ALARM → replay → processed → OK | fixed replay target during audit |
 | A2 | Ordering: all at once / out of order | PASS | `progress.replay`, FIFO per student, consistent lesson index | live burst (identical results, 12 re-evaluations); moto: reverse, shuffled, late, retry-after | — |
 | A3 | Structured logs + ≥1 alarm | PASS | `log.py`, `observability.tf` | live: 462 app log lines, 100 % JSON; 10 alarms; alarm fired and published | P2-3 no subscriber |
-| A4 | Authenticated API: GET /students/{id}, /lessons/{id} | PASS | `api.tf`, `handlers/api.py`, `authorizer.py` | live matrix of 14 cases (200/401/403/404/400) | P2-1 raw link broken (fixed, not deployed) |
+| A4 | Authenticated API: GET /students/{id}, /lessons/{id} | PASS | `api.tf`, `handlers/api.py`, `authorizer.py` | live matrix of 14 cases (200/401/403/404/400) | P2-1 raw link broken (fixed, deployed) |
 | A5 | Cost estimate 200 cars × 3/day | PASS | README | recomputed with 30 days and measured Lambda durations | estimate, not a bill |
 | C1 | Rules v2 without code redeploy, past decisions explainable | PARTIAL | `rules.py` select-by-date, `published.json` lock, hash in audit | unit tests (v1/v2 switch by date, immutability guard) | not exercised live; retroactive re-evaluation only designed |
 | C2 | Instructor feature + rationale | PASS (timeline, coaching) / FAIL→fixed (raw link) | `metrics.py` events, `api.py` coaching | live API returns events + coaching | P2-1 |
 | C3 | Thinking: late files / 100× | PASS | README Level 3 | review | — |
 | B1 | Elixir | MISSING | — | — | bonus only |
-| S1 | README starts with full name | FAIL | `README.md` line 3 | inspection | placeholder `_FULL NAME_` |
+| S1 | README starts with full name | PASS | `README.md` line 3 | inspection | was a placeholder at audit time; fixed |
 | S2 | README covers diagram, deploy/destroy, results, assumptions, another week, starter-kit findings | PASS | `README.md` | inspection | — |
 | S3 | Zip with `.git`, live URL + how to call in email | MISSING (not yet requested) | — | — | to do at submission |
 
@@ -71,7 +72,7 @@ so no sample file is affected (oracle agrees on all 16). Fix: `PRECISION = 10`.
 Test: `test_audit_edge_cases.py::test_rounding_cannot_hide_a_threshold_breach` (RED → GREEN).
 
 ### P2
-**P2-1 Raw-file download link always failed. FIXED on branch, NOT DEPLOYED.**
+**P2-1 Raw-file download link always failed. FIXED and deployed (live link → HTTP 200).**
 Live: `GET /lessons/L-1001` → `raw_file_url` → HTTP 400 `InvalidArgument: Requests specifying Server Side
 Encryption with AWS KMS managed keys require AWS Signature Version 4`. boto3 signed with SigV2. moto
 does not enforce this, so the earlier test only checked `startswith("https://")`. Fix: S3 client with
@@ -85,10 +86,10 @@ which said missing samples are rejected. Fix: every step must be within ±25 % o
 This also rejects a wrong rate header. An intermediate ±50 % version let a 2× rate mismatch through; it was
 caught by `test_header_sample_rate_must_match_timestamps`. Tests: `test_any_dropped_sample_is_rejected` (RED → GREEN).
 
-**P2-3 Alarms notify nobody. OPEN (needs an email + deploy).**
+**P2-3 Alarms notify nobody. FIXED (email subscription deployed; needs a one-time confirmation click).**
 Live alarm history: `drivecoach-ingest-dlq-not-empty` OK → ALARM (09:25) → "Successfully executed action
 …drivecoach-alarms" → OK (09:30). `list-subscriptions-by-topic` is empty because `alarm_email` defaults to "".
-Fix: `terraform apply -var alarm_email=…` and confirm the subscription email.
+Fix: CI passes `alarm_email` from the `ALARM_EMAIL` repository variable (`make deploy` reads the same variable).
 
 **P2-4 Invalid initial state crashed the evaluator on every retry. FIXED.**
 A `students.csv` row with an unknown program raised `KeyError` deep in `progress.apply` on each of 5
@@ -136,11 +137,9 @@ Details and raw output: [`TEST_RESULTS.md`](TEST_RESULTS.md).
 
 ## Remaining risks
 
-1. The branch is not deployed. Live still has the broken raw-file link (P2-1) and the older validation.
-2. Nobody receives alarms (P2-3).
-3. Destroy and redeploy from zero was not re-run during the audit (destructive). The initial deploy was from zero.
-4. Quarantine and conflict handling are verified on moto only, not on live S3 (needs an upload of a bad file).
-5. Memory behaviour for very large files (the 50 MB cap) is not load-tested.
+1. Destroy and redeploy from zero was not re-run during the audit (destructive). The initial deploy was from zero.
+2. Quarantine and conflict handling are verified on moto only, not on live S3 (needs an upload of a bad file).
+3. Memory behaviour for very large files (the 50 MB cap) is not load-tested.
 
 ## Unverified
 
@@ -148,10 +147,11 @@ Details and raw output: [`TEST_RESULTS.md`](TEST_RESULTS.md).
 - Live quarantine path, live CONFLICTING_LESSON_ID, live rules-v2 switch (each needs a live upload or a data change).
 - Behaviour when DynamoDB is unavailable (reasoned: exceptions → SQS retry → DLQ; moto crash tests cover the code path).
 
-## Recommended next steps
+## Status after deployment (2026-10-18)
 
-1. Add the candidate's full name to the README (blocker).
-2. Review this branch, merge to `main` → CI deploys the fixes. Then re-run `make results` and the live checks.
-3. Set `alarm_email` and confirm the subscription.
-4. Optional, with authorization: live quarantine test, live rules-v2 demo, Elixir bonus.
-5. Before submitting: zip with `.git`, email with the API URL and key. Keep it running 72 h, then `make destroy`.
+- The audit branch was merged into `main`. CI run `39111693931`: tests passed, `terraform apply` updated the 4 Lambda
+  functions and created the email subscription, the smoke test passed. Plan before merging: 1 to add, 4 to change, 0 to destroy.
+- Live re-check after the deploy: `GET /lessons/L-1015` raw-file link → HTTP 200 (P2-1 fixed live); no key → 401;
+  `make results` → all 16 files and 4 final states equal the README tables (0 differences).
+- SNS email subscription created; status `PendingConfirmation` until the recipient clicks the AWS confirmation link.
+- Still open by design: P2-5 (auto re-evaluation after enrolment) and P3-5 (no review gate on `main`).

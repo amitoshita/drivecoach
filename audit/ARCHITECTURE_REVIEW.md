@@ -52,7 +52,7 @@ All lookups are by key or partition. The only Scan is the `rules` table (a handf
 | Full replay per message | O(lessons per student). Fine at ≤ 30, wasteful at scale | snapshot state per lesson, replay from the latest snapshot before the new `started_at` |
 | Whole file in memory | 135 MB for 2 MB; a 50 MB file is untested | streaming parser, or a lower cap |
 | No automatic rebuild on enrolment | a lesson before enrolment never counts | DynamoDB Stream on INITIAL items → evaluate queue |
-| Alarms have no subscriber by default | failures go unnoticed | require `alarm_email` |
+| Alarms had no subscriber (fixed after the audit) | failures went unnoticed | `ALARM_EMAIL` repository variable, passed by CI |
 | Deploy on every push to `main` | no review gate | branch protection + environment reviewers |
 | moto ≠ AWS | two live-only bugs (FIFO dedup window, SigV2 on KMS) passed tests | keep a small live smoke suite in CI (upload one file, read it back, fetch the link) |
 
@@ -120,8 +120,8 @@ was not queried (Cost Explorer API calls are themselves billed). Check the budge
 
 ## Suggested improvements (priority order)
 
-1. Deploy the audit branch (fixes the raw-file link).
-2. `alarm_email` set, plus one live smoke test in CI that uploads a fixture lesson and reads it back.
+1. ~~Deploy the audit fixes~~ and ~~set `alarm_email`~~ (done after the audit).
+2. One live smoke test in CI that uploads a fixture lesson and reads it back.
 3. Cognito/JWT authorizer with per-instructor access.
 4. Enrolment-triggered rebuild (DynamoDB Stream).
 5. Snapshots for replay; streaming parser.
