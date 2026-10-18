@@ -74,7 +74,9 @@ jobs:
             -backend-config="region=${{ vars.AWS_REGION }}"
 
       - name: Terraform plan
-        run: terraform -chdir=terraform plan -input=false -var region=${{ vars.AWS_REGION }} -out=tfplan
+        run: |
+          terraform -chdir=terraform plan -input=false -out=tfplan \
+            -var region=${{ vars.AWS_REGION }} -var alarm_email="${{ vars.ALARM_EMAIL }}"
 
       - name: Terraform apply
         run: terraform -chdir=terraform apply -input=false tfplan

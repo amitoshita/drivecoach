@@ -12,6 +12,8 @@ DELAY  ?= 5
 QUEUE  ?= ingest
 # BUDGET=false if the $$10 budget alert was already created in the console
 BUDGET ?= true
+# Alarm recipient. Defaults to the repo variable CI uses, so a local deploy keeps the subscription.
+ALARM_EMAIL ?= $(shell gh variable get ALARM_EMAIL 2>/dev/null)
 
 .PHONY: test lint bootstrap init deploy destroy upload upload-burst results api-key replay-dlq reset clean
 
@@ -41,7 +43,7 @@ clean:
 	rm -rf build
 
 deploy: clean init
-	$(TF) apply -input=false -auto-approve -var region=$(REGION)
+	$(TF) apply -input=false -auto-approve -var region=$(REGION) -var alarm_email="$(ALARM_EMAIL)"
 	@echo "API: $$($(TF) output -raw api_url)   key: make api-key"
 
 destroy: init

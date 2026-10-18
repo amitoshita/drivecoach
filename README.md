@@ -1,7 +1,6 @@
 # DriveCoach backend
 
-Amit Levy
-
+**Amit Levy**
 
 Serverless AWS backend that turns lesson files uploaded by in-car sensor boxes into
 PASS / REVIEW / FAIL / INVALID decisions, keeps each student's progress, and
@@ -112,7 +111,7 @@ Prerequisites: AWS CLI v2 logged in with an admin profile, Terraform ≥ 1.10, P
 # once: $10 budget alert, Terraform state bucket, GitHub OIDC role
 make bootstrap GITHUB_REPO=<owner>/<repo> EMAIL=<you@example.com>
 
-make deploy                 # one command: package + terraform apply (incl. rules v1 and students)
+make deploy ALARM_EMAIL=<you@example.com>   # one command: package + terraform apply (incl. rules v1 and students)
 make upload                 # scripts/upload_lessons.sh against the deployed bucket
 make results                # prints the results tables below, from the live API
 make destroy                # one command: tear everything down
@@ -137,7 +136,8 @@ curl -s -H "x-api-key: $KEY" $API/lessons/L-1015 | jq
 - Push to `main`: assume the deploy role through **GitHub OIDC** (no AWS keys stored in GitHub),
   `terraform plan` + `apply`, then a smoke test that the API returns 200 with the key and
   rejects calls without it.
-- Repository variables: `AWS_REGION`, `TF_STATE_BUCKET`, `AWS_DEPLOY_ROLE_ARN` (printed by `make bootstrap`).
+- Repository variables: `AWS_REGION`, `TF_STATE_BUCKET`, `AWS_DEPLOY_ROLE_ARN` (printed by `make bootstrap`),
+  and `ALARM_EMAIL` (alarm recipient, kept out of the code).
 
 ---
 
@@ -287,7 +287,23 @@ on random lessons, and against the live deployment. Everything matched. Then I t
     `terraform plan` and validated in replay); quarantine copied the newest object version instead of the
     one inspected.
 18. *Alarms reach nobody by default.* Verified live: the DLQ alarm fired and published to SNS, but the topic
-    has no subscriber unless `alarm_email` is set.
+    has no subscriber unless `alarm_email` is set. CI now passes it from the `ALARM_EMAIL` repository variable.
+
+**Problems hit while building and deploying** (smaller, but each cost time and is worth knowing)
+
+19. *Terraform dependency cycle:* the queue visibility timeout referenced the Lambda's timeout, while the
+    Lambda's event source referenced the queue. Both now read the timeout from one `locals` map.
+20. *Deprecated GSI syntax* in AWS provider 6 (`hash_key`/`range_key` on indexes): moved to `key_schema` blocks.
+21. *CI could not assume the deploy role:* new GitHub repositories send an OIDC subject with immutable IDs
+    (`repo:owner@123/name@456:…`), not the `repo:owner/name:…` found in most examples. The bootstrap reads the
+    repository's actual prefix with `gh api` and trusts exactly that.
+22. *`terraform plan` failed in CI on `lambda:ListTags` for event source mappings:* their ARNs don't contain
+    the function name, so a `drivecoach-*` resource pattern didn't match. Added the account's ESM ARN pattern.
+23. *`make replay-dlq` moved 0 messages (live):* without `--destination-arn`, a move task returns each message
+    to the queue it was originally sent to, so a message that did not come from that queue stays in the DLQ.
+    The target queue is now named explicitly.
+24. *My own first fix for sample gaps was too loose* (±50 % per step lets a header declare half the real rate).
+    A test caught it; the tolerance is ±25 %.
 
 ---
 
@@ -351,7 +367,7 @@ group per student and an optimistic lock on the state record prevent concurrent 
   `fields lesson_id, result | filter event = "lesson.evaluated" | sort ts desc`
 - Custom metrics via Embedded Metric Format: `LessonsIngested`, `DuplicateUploads`,
   `RejectedFiles`, `Evaluations` by result, `Reevaluations`, `UnknownStudentLessons`.
-- **Alarms** → SNS (email optional): DLQ not empty (×2), processing failures on the first attempt (×2,
+- **Alarms** → SNS → email (`ALARM_EMAIL`; AWS sends a confirmation link first): DLQ not empty (×2), processing failures on the first attempt (×2,
   because handled errors don't show up in the Lambda `Errors` metric), Lambda errors (×4), rejected files,
   ingest backlog older than 15 minutes. Dashboard `drivecoach`.
 - API Gateway access logs, throttling (10 rps, burst 20).
@@ -485,7 +501,7 @@ may already have been told "PASS, you're done", and the late file turns that int
 
 ## Elixir bonus
 
-Not attempted yet. Priority went to correctness, security and the required items.
+Not attempted. I chose to spend the time on correctness, security, testing and the Level 2–3 items.
 
 ---
 
