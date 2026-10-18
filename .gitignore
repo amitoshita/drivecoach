@@ -10,3 +10,4 @@ build/
 !example.tfvars
 terraform/backend.hcl
 .DS_Store
+.coverage

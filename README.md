@@ -268,6 +268,27 @@ Committed unchanged as the first commit (`git log`), so every change below is vi
     S3 event `sequencer` (unique per upload, stable on redelivery). The moto tests missed it because
     moto forgets IDs once a message is consumed. The regression test now sends both messages before draining.
 
+**Found in a self-audit** (full report with evidence: [`audit/AUDIT_REPORT.md`](audit/AUDIT_REPORT.md)).
+I re-implemented metrics, events, rules and the state machine from the spec, without importing
+my own code (`tests/oracle.py`), and compared the two on the dataset, on 3,000 random event patterns,
+on random lessons, and against the live deployment. Everything matched. Then I tried to break the edges:
+
+14. *Raw-file download links did not work (live).* `GET /lessons/{id}` returned a presigned link that S3
+    refused with HTTP 400. Objects encrypted with a KMS key accept only SigV4 signatures, and boto3 signed
+    with SigV2. moto does not enforce this. Fixed by configuring the S3 client for SigV4, verified against the live bucket.
+15. *Rounding could cross a rule threshold.* Metrics were rounded to 4 decimals before evaluation:
+    5.0000417 % over the limit became 5.0 and PASSED instead of REVIEW. That needs a lesson of about
+    40 minutes, so no sample file is affected. Now 10 decimals.
+16. *Small sample gaps were accepted.* A 1 % tolerance on the total time span let a 20-minute file lose
+    ~600 samples unnoticed. Every step is now checked against `sample_rate_hz`, which also catches a
+    header that declares the wrong rate.
+17. *Smaller ones:* duplicate header keys silently overrode each other; `effective_from` was not validated
+    as a date; an invalid `students.csv` value crashed the evaluator on every retry (now rejected at
+    `terraform plan` and validated in replay); quarantine copied the newest object version instead of the
+    one inspected.
+18. *Alarms reach nobody by default.* Verified live: the DLQ alarm fired and published to SNS, but the topic
+    has no subscriber unless `alarm_email` is set.
+
 ---
 
 ## Assumptions
@@ -290,11 +311,12 @@ Committed unchanged as the first commit (`git log`), so every change below is vi
    Two qualifying runs merge when fewer than 50 non-qualifying samples separate them. On this data, four
    reasonable interpretations give identical counts (checked). The spec's 15 / 50 samples are applied
    as 0.3 s / 1 s, so a box with a different sample rate is judged the same way.
-9. **Metrics are rounded to 4 decimals before evaluation and storage**, so re-evaluating the
-   stored metrics always reproduces the stored result.
-10. **Validation.** Files with missing samples (t_ms gaps), non-monotonic time, non-numeric values,
-    unknown units or physically implausible values (speed > 300 km/h, |accel| > 30 m/s²) are
-    rejected rather than scored. A broken sensor should not fail a student.
+9. **Metrics are rounded to 10 decimals before evaluation and stored that way**, so re-evaluating the
+   stored metrics always reproduces the stored result, and rounding can never move a value across a threshold.
+10. **Validation.** Files are rejected rather than scored when: a time step deviates more than 25 % from
+    `1000 / sample_rate_hz` (dropped samples or a wrong rate header), time goes backwards, a value is
+    non-numeric/NaN/infinite, a header key repeats, the unit is unknown, or a value is physically
+    implausible (speed < 0 or > 300 km/h, |accel| > 30 m/s²). A broken sensor should not fail a student.
 11. **Unknown student** (not in `students.csv`): the lesson is stored and evaluated; no state is
     created; metric `UnknownStudentLessons` is emitted. **Known gap:** enrolling the student later does
    not trigger a rebuild automatically; an operator sends `{"student_id": "S-…", "reason": "enrolled"}`
@@ -345,11 +367,12 @@ SSM SecureString. The decision is cached for 5 minutes. Without a key the API re
 
 ### Cost estimate: 200 cars × 3 lessons/day
 
-≈ **18,250 lessons/month**, ~2.1 MB each ≈ **38 GB/month** of new raw data. us-east-1 list prices, no free tier.
+**18,000 lessons/month** (30 days), ~2.1 MB each ≈ **38 GB/month** of new raw data. us-east-1 list prices, no free tier.
+Lambda durations are **measured on the live deployment** (ingest median 0.65 s, max 2.1 s, peak memory 135 MB).
 
 | Service | Usage / month | Cost |
 |---|---|---|
-| Lambda ingest (1 GB, arm64, ~1 s/file; 0.2 s measured on a laptop) | ~18k GB-s | $0.25 |
+| Lambda ingest (1 GB, arm64, 0.65 s median measured live; costed at 1 s for headroom) | ~18k GB-s | $0.25 |
 | Lambda evaluate + api + authorizer | ~6k GB-s | $0.10 |
 | S3 PUT/GET | ~40k requests | $0.20 |
 | S3 storage (lifecycle: Standard 30 d → IA → Glacier IR at 180 d) | month 1: ~38 GB; month 12: ~450 GB | $0.90 → ~$4 |
@@ -447,6 +470,19 @@ may already have been told "PASS, you're done", and the late file turns that int
 
 ---
 
+## Known limitations
+
+- One shared instructor API key; no per-instructor authorization (see "another week").
+- A lesson that arrives before its student is enrolled is not re-evaluated automatically after enrolment.
+- Very long files are read fully into memory. 2 MB uses 135 MB of RAM. The 50 MB upload cap (~8 h of driving)
+  is well above any real lesson but has not been load-tested.
+- CI deploys every push to `main`. On a team I would add branch protection and a required reviewer on the
+  `production` environment.
+- The bootstrap stack (state bucket, deploy role) keeps its own small Terraform state on the laptop that created it.
+- The Terraform state contains the generated API key. The state bucket is private, encrypted and versioned.
+
+---
+
 ## Elixir bonus
 
 Not attempted yet. Priority went to correctness, security and the required items.
@@ -457,7 +493,7 @@ Not attempted yet. Priority went to correctness, security and the required items
 
 ```bash
 python -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
-make test        # 59 tests, ~20 s
+make test        # 3,159 tests, ~45 s
 ```
 
 - **Golden tests** (`tests/test_pipeline_golden.py`): every lesson result and final student state
@@ -468,6 +504,13 @@ make test        # 59 tests, ~20 s
 - **Integration tests on moto** (`tests/test_handlers_aws.py`): real handlers end to end, including
   a shuffled burst, a **late file that triggers a re-evaluation with an audit trail**, at-least-once
   redelivery, quarantine of broken and conflicting files, transient-error retry, API 400/404, authorizer.
+- **Independent oracle** (`tests/oracle.py`, `tests/test_against_oracle.py`): the spec re-implemented
+  without importing `src/`, compared on every sample file, every student, 3,000 random event patterns
+  and 40 random lessons.
+- **Audit edge cases and resilience** (`tests/test_audit_*.py`): event boundaries (14/15/16 samples,
+  49/50/51 gaps, start/end of file, transitive merges), exact thresholds, every state transition,
+  malformed input, reverse order, the same event 3 times, S3 keys with spaces and `+`, a crash at each
+  step of ingest and evaluate followed by a retry, a concurrent writer caught by the optimistic lock.
 - **Rules guard** (`tests/test_rules_files.py`): rule files are valid, named after their
   version, and published versions are immutable.
 
