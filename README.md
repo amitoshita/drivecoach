@@ -1,6 +1,7 @@
 # DriveCoach backend
+שש
+Amit Levy
 
-**Candidate: _FULL NAME_**
 
 Serverless AWS backend that turns lesson files uploaded by in-car sensor boxes into
 PASS / REVIEW / FAIL / INVALID decisions, keeps each student's progress, and
